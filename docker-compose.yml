@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Read from your shell or from a .env file next to this file.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-900}
+    volumes:
+      - issue-data:/app/data   # keeps the cache and history between restarts
+    restart: unless-stopped
+
+volumes:
+  issue-data:

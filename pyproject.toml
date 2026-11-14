@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "issue-count"
+version = "0.1.0"
+description = "Count the issues of a GitHub repository and write an HTML report."
+readme = "README.md"
+requires-python = ">=3.8"
+
+[project.scripts]
+issue-count = "issue_count.cli:main"
+
+[tool.setuptools]
+packages = ["issue_count"]

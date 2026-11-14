@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IssueCount</title>
+<meta name="description" content="Issue counts, health score and trends for any public GitHub repository.">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root {
+    --bg:#f4f6fb; --card:#ffffff; --text:#1b2430; --muted:#5b6776; --line:#e1e6ee;
+    --accent:#4f46e5; --accent2:#7c3aed; --shadow:0 4px 18px rgba(30,40,80,.08);
+    --good:#16a34a; --bad:#dc2626; --warn:#b45309;
+  }
+  :root[data-theme="dark"] {
+    --bg:#0f1420; --card:#171e2e; --text:#e8ecf4; --muted:#9aa6b8; --line:#2a3347;
+    --shadow:0 4px 18px rgba(0,0,0,.35); --good:#4ade80; --bad:#f87171; --warn:#fbbf24;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; line-height:1.5; }
+  .wrap { max-width:960px; margin:0 auto; padding:0 1rem; }
+  a { color:var(--accent); }
+
+  header.hero { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff; padding:1rem 0 5.5rem; }
+  .topbar { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:.6rem; font-weight:700; font-size:1.15rem; color:#fff; text-decoration:none; }
+  #nav { display:flex; gap:.3rem; margin-left:auto; }
+  #nav a { color:#fff; text-decoration:none; padding:.4rem .85rem; border-radius:999px; opacity:.85; font-size:.95rem; }
+  #nav a:hover { opacity:1; background:rgba(255,255,255,.12); }
+  #nav a.active { opacity:1; background:rgba(255,255,255,.24); font-weight:600; }
+  .tools { display:flex; gap:.4rem; }
+  .tools button { background:rgba(255,255,255,.18); color:#fff; border:0; border-radius:8px; padding:.45rem .7rem; cursor:pointer; font-size:1rem; }
+  #menu { display:none; }
+  .hero-text { padding-top:2rem; }
+  .hero-text h1 { margin:0 0 .4rem; font-size:clamp(1.6rem,4vw,2.3rem); line-height:1.2; }
+  .hero-text p { margin:0; max-width:560px; opacity:.92; }
+
+  main { margin-top:-3.5rem; padding-bottom:3rem; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:1.1rem; box-shadow:var(--shadow); margin-bottom:1rem; }
+  .panel h2 { margin:0 0 .75rem; font-size:1.05rem; }
+  .panel p { margin:.4rem 0; color:var(--muted); }
+  .panel ul { margin:.4rem 0; padding-left:1.2rem; color:var(--muted); }
+  .panel li { margin:.25rem 0; }
+
+  form { display:grid; gap:.7rem; }
+  .row { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+  input[type=text] { flex:1 1 200px; padding:.65rem .8rem; border:1px solid var(--line); border-radius:8px; font-size:1rem; background:var(--bg); color:var(--text); }
+  input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .vs { color:var(--muted); font-weight:600; }
+  .btn { padding:.65rem 1.3rem; border:0; border-radius:8px; background:var(--accent); color:#fff; font-size:1rem; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; }
+  .btn:disabled { opacity:.6; cursor:wait; }
+  .btn.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); font-weight:500; padding:.45rem .9rem; font-size:.9rem; }
+  .hint { margin:0; font-size:.82rem; color:var(--muted); }
+  .chips { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; font-size:.9rem; color:var(--muted); }
+  .chip { border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:999px; padding:.2rem .7rem; cursor:pointer; font-size:.85rem; }
+  .chip:hover { border-color:var(--accent); color:var(--accent); }
+
+  .status { margin:.2rem 0 1rem; min-height:1.4rem; padding:0 .2rem; }
+  .status.error { color:var(--bad); }
+  .status.warn { color:var(--warn); }
+
+  .results-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.6rem; margin-bottom:.8rem; }
+  .results-head h2 { margin:0; font-size:1.3rem; }
+  .actions { display:flex; gap:.5rem; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.8rem; margin-bottom:1rem; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:1rem; box-shadow:var(--shadow); display:flex; gap:.8rem; align-items:center; }
+  .stat .icon { font-size:1.6rem; width:2.8rem; height:2.8rem; display:grid; place-items:center; border-radius:12px; background:var(--bg); }
+  .stat b { display:block; font-size:1.7rem; line-height:1.1; }
+  .stat span { color:var(--muted); font-size:.85rem; }
+  b.good { color:var(--good); } b.fair { color:var(--warn); } b.poor { color:var(--bad); }
+  .panel p.empty { margin:0; }
+
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:.6rem .5rem; text-align:right; border-bottom:1px solid var(--line); }
+  th:first-child { text-align:left; font-weight:500; color:var(--muted); }
+  thead th { font-weight:700; color:var(--text); word-break:break-all; }
+
+  .steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; }
+  .step b { display:inline-grid; place-items:center; width:1.9rem; height:1.9rem; border-radius:50%; background:var(--accent); color:#fff; margin-bottom:.3rem; }
+  .step p { margin:0; font-size:.95rem; }
+  .links { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.8rem; }
+
+  footer { text-align:center; color:var(--muted); font-size:.9rem; padding:1.5rem 1rem 2.5rem; border-top:1px solid var(--line); }
+  [hidden] { display:none !important; }
+
+  @media (max-width:700px) {
+    #menu { display:inline-block; }
+    .tools { margin-left:auto; }
+    #nav { display:none; flex-direction:column; width:100%; order:3; margin:.4rem 0 0; }
+    #nav.open { display:flex; }
+    #nav a { border-radius:10px; padding:.6rem .85rem; }
+  }
+  @media print {
+    header.hero, form, .chips, .actions, .status, footer, #nav { display:none !important; }
+    body { background:#fff; }
+    main { margin-top:0; }
+    .panel, .stat { box-shadow:none; break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="topbar">
+      <a class="brand" href="#home">
+        <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+          <rect width="28" height="28" rx="7" fill="#fff" fill-opacity=".2"/>
+          <rect x="6" y="14" width="4" height="8" rx="1" fill="#fff"/>
+          <rect x="12" y="9" width="4" height="13" rx="1" fill="#fff"/>
+          <rect x="18" y="5" width="4" height="17" rx="1" fill="#fff"/>
+        </svg>
+        IssueCount
+      </a>
+      <nav id="nav" aria-label="Main">
+        <a data-nav="home" href="#home">Home</a>
+        <a data-nav="compare" href="#compare">Compare</a>
+        <a data-nav="how" href="#how">How it works</a>
+        <a data-nav="about" href="#about">About</a>
+      </nav>
+      <div class="tools">
+        <button id="theme" type="button" aria-label="Toggle dark mode">🌙</button>
+        <button id="menu" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      </div>
+    </div>
+    <div class="hero-text">
+      <h1 id="hero-title"></h1>
+      <p id="hero-sub"></p>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- HOME -->
+  <div data-page="home">
+    <section class="panel">
+      <form id="form">
+        <div class="row">
+          <input id="repo" type="text" placeholder="owner/repo or https://github.com/owner/repo" autocomplete="off" required>
+          <button id="go" class="btn" type="submit">Analyze</button>
+        </div>
+        <div class="row">
+          <input id="label" type="text" placeholder="Label filter (optional)" autocomplete="off">
+        </div>
+        <p class="hint">Results are cached on the server for a few minutes, so repeat lookups are instant.</p>
+        <div class="chips" id="examples-row"><span>Try:</span></div>
+        <div class="chips" id="recent-row" hidden><span>Recent:</span></div>
+      </form>
+    </section>
+    <div id="status" class="status" role="status"></div>
+    <section id="single" hidden>
+      <div class="results-head">
+        <h2><a id="single-title" target="_blank" rel="noopener"></a></h2>
+        <div class="actions">
+          <button class="btn ghost" type="button" data-csv>⬇ Download CSV</button>
+          <button class="btn ghost" type="button" data-pdf>🖨 Save as PDF</button>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="stat"><div class="icon">📋</div><div><b id="total">0</b><span>Total issues</span></div></div>
+        <div class="stat"><div class="icon">🟢</div><div><b id="open">0</b><span>Open</span></div></div>
+        <div class="stat"><div class="icon">✅</div><div><b id="closed">0</b><span>Closed</span></div></div>
+        <div class="stat"><div class="icon">⏱️</div><div><b id="avg">-</b><span>Avg days to close</span></div></div>
+        <div class="stat"><div class="icon">❤️</div><div><b id="health">-</b><span id="health-label">Health score</span></div></div>
+      </div>
+      <div class="panel">
+        <h2>Health details</h2>
+        <ul>
+          <li id="stale-line"></li>
+          <li id="unassigned-line"></li>
+        </ul>
+        <p class="hint">Score out of 100: 40% how few open issues are stale, 20% how many open issues have an owner, 40% how many issues are closed. It is a quick comparison tool, not a verdict.</p>
+      </div>
+      <div class="panel"><h2>Opened vs closed per month</h2><canvas id="months"></canvas><p class="empty" id="months-empty" hidden>No data to chart.</p></div>
+      <div class="panel"><h2>Trend over time</h2><canvas id="trend"></canvas><p class="empty" id="trend-empty" hidden>The trend builds up as this repo is looked up on different days. Check back tomorrow.</p></div>
+      <div class="panel"><h2>Top labels</h2><canvas id="labels"></canvas><p class="empty" id="labels-empty" hidden>No labels used.</p></div>
+      <div class="panel"><h2>Top assignees</h2><canvas id="assignees"></canvas><p class="empty" id="assignees-empty" hidden>No assignees.</p></div>
+    </section>
+  </div>
+
+  <!-- COMPARE -->
+  <div data-page="compare" hidden>
+    <section class="panel">
+      <form id="cform">
+        <div class="row">
+          <input id="c-repo1" type="text" placeholder="First repo, e.g. pallets/click" autocomplete="off" required>
+          <span class="vs">vs</span>
+          <input id="c-repo2" type="text" placeholder="Second repo, e.g. psf/requests" autocomplete="off" required>
+          <button id="c-go" class="btn" type="submit">Compare</button>
+        </div>
+        <div class="row">
+          <input id="c-label" type="text" placeholder="Label filter (optional)" autocomplete="off">
+        </div>
+        <div class="chips" id="c-examples-row"><span>Try:</span></div>
+      </form>
+    </section>
+    <div id="c-status" class="status" role="status"></div>
+    <section id="compare-view" hidden>
+      <div class="results-head">
+        <h2>Comparison</h2>
+        <div class="actions">
+          <button class="btn ghost" type="button" data-csv>⬇ Download CSV</button>
+          <button class="btn ghost" type="button" data-pdf>🖨 Save as PDF</button>
+        </div>
+      </div>
+      <div class="panel">
+        <table>
+          <thead><tr><th></th><th id="cmp-a"></th><th id="cmp-b"></th></tr></thead>
+          <tbody id="cmp-body"></tbody>
+        </table>
+      </div>
+      <div class="panel"><h2>Totals</h2><canvas id="cmp-bars"></canvas></div>
+      <div class="panel"><h2>Issues opened per month</h2><canvas id="cmp-months"></canvas><p class="empty" id="cmp-months-empty" hidden>No data to chart.</p></div>
+    </section>
+  </div>
+
+  <!-- HOW IT WORKS -->
+  <div data-page="how" hidden>
+    <section class="panel">
+      <h2>Three steps</h2>
+      <div class="steps">
+        <div class="step"><b>1</b><p>Paste a repository link or type <em>owner/repo</em> on the Home page.</p></div>
+        <div class="step"><b>2</b><p>The IssueCount server asks GitHub for the issue list and keeps the result for a few minutes, so repeat lookups are instant.</p></div>
+        <div class="step"><b>3</b><p>The page shows the counts, a health score and charts. Download them as CSV or PDF.</p></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>What gets counted</h2>
+      <ul>
+        <li>Issues that are open or closed. Pull requests are left out.</li>
+        <li>Average days to close, measured from opening to closing, for closed issues only.</li>
+        <li>The top 10 labels and assignees, and issues opened and closed per month.</li>
+        <li>With a label filter, only issues carrying that label.</li>
+      </ul>
+    </section>
+    <section class="panel">
+      <h2>Health score and trends</h2>
+      <p>The health score blends how many open issues are stale (no activity for 90 days), how many open issues have an assignee, and how many issues are closed.</p>
+      <p>Every time a repository is looked up, the server saves one snapshot per day. The trend chart draws those snapshots, so it grows the more the repo is checked.</p>
+    </section>
+    <section class="panel">
+      <h2>Rate limits and large repos</h2>
+      <p>GitHub limits how often it can be asked for data. IssueCount keeps its own copy of recent results, and if GitHub refuses a request it shows the last saved result and says so.</p>
+      <p>Very large repositories hit a GitHub paging limit. The page tells you when the counts are partial.</p>
+    </section>
+  </div>
+
+  <!-- ABOUT -->
+  <div data-page="about" hidden>
+    <section class="panel">
+      <h2>About IssueCount</h2>
+      <p>IssueCount is a full-stack project that turns a repository's issue list into numbers you can read at a glance: how many issues exist, how many are still open, how long fixes take, how healthy the backlog looks, and how it changes over time.</p>
+      <div class="links">
+        <a class="btn" href="#home">Try it</a>
+        <a class="btn ghost" href="/docs" target="_blank" rel="noopener">API docs</a>
+        <a class="btn ghost" href="https://github.com/Mounika-39" target="_blank" rel="noopener">My GitHub</a>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Built with</h2>
+      <ul>
+        <li>Python and FastAPI for the API</li>
+        <li>SQLite for the cache and the daily history</li>
+        <li>Plain HTML, CSS and JavaScript with Chart.js for the website</li>
+        <li>pytest for tests, Docker for packaging, GitHub Actions for CI</li>
+      </ul>
+    </section>
+  </div>
+
+</main>
+
+<footer>
+  Built by <a href="https://github.com/Mounika-39" target="_blank" rel="noopener">Mounika</a>
+  · Data from the GitHub REST API
+</footer>
+
+<script>
+// <core>
+function parseRepo(input) {
+  const m = input.trim().replace(/\.git$/i, "")
+    .match(/^(?:https?:\/\/)?(?:www\.)?(?:github\.com\/)?([\w.-]+)\/([\w.-]+)/i);
+  return m ? m[1] + "/" + m[2] : null;
+}
+
+// `data` is what the API returns for one repository: {repo, summary, health, ...}
+function metricRows(data) {
+  const s = data.summary, h = data.health;
+  const blank = v => (v === null || v === undefined) ? "" : v;
+  return [
+    ["Total issues", s.total],
+    ["Open", s.open],
+    ["Closed", s.closed],
+    ["Avg days to close", blank(s.avg_days_to_close)],
+    ["Health score", blank(h.score)],
+    ["Stale open issues", h.stale_open],
+    ["Unassigned open issues", h.unassigned_open],
+  ];
+}
+
+function csvCell(v) {
+  let t = String(v);
+  // Stop spreadsheets from treating text such as "=cmd" as a formula.
+  if (typeof v === "string" && /^[=+\-@]/.test(t)) t = "'" + t;
+  return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+}
+
+function toCsv(rows) {
+  return rows.map(r => r.map(csvCell).join(",")).join("\n");
+}
+
+function singleCsv(data) {
+  const s = data.summary;
+  const rows = [["Repository", data.repo], [], ["Metric", "Value"], ...metricRows(data), [],
+                ["Month", "Opened", "Closed"]];
+  s.months.forEach((m, i) => rows.push([m, s.opened[i], s.closed_per_month[i]]));
+  rows.push([], ["Label", "Issues"], ...s.labels, [], ["Assignee", "Issues"], ...s.assignees);
+  return toCsv(rows);
+}
+
+function compareCsv(a, b) {
+  const A = metricRows(a), B = metricRows(b);
+  return toCsv([["Metric", a.repo, b.repo], ...A.map((r, i) => [r[0], r[1], B[i][1]])]);
+}
+
+function mergeMonths(a, b) {
+  const months = [...new Set([...a.summary.months, ...b.summary.months])].sort();
+  const pick = d => months.map(m => { const i = d.summary.months.indexOf(m); return i < 0 ? 0 : d.summary.opened[i]; });
+  return { months, a: pick(a), b: pick(b) };
+}
+
+function healthClass(score) {
+  if (score === null || score === undefined) return "";
+  return score >= 70 ? "good" : score >= 40 ? "fair" : "poor";
+}
+
+function healthWord(score) {
+  if (score === null || score === undefined) return "Health score";
+  return score >= 70 ? "Healthy" : score >= 40 ? "Fair" : "Needs attention";
+}
+
+function ageText(iso, now = Date.now()) {
+  const minutes = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return minutes + " min ago";
+  if (minutes < 1440) return Math.round(minutes / 60) + " h ago";
+  return Math.round(minutes / 1440) + " d ago";
+}
+// </core>
+
+const $ = id => document.getElementById(id);
+const charts = {};
+const views = { home: null, compare: null }; // last results shown on each page
+let current = "home";
+const EXAMPLES = ["pallets/click", "psf/requests", "expressjs/express"];
+const PAGES = {
+  home:    { title: "Home", h1: "Count any GitHub repo's issues in seconds",
+             sub: "Paste a repository to see how many issues are open or closed, how fast they get fixed, and how healthy the backlog is." },
+  compare: { title: "Compare", h1: "Compare two repositories",
+             sub: "Put two repos side by side to see which one has more open issues and which looks healthier." },
+  how:     { title: "How it works", h1: "How it works",
+             sub: "What the server does with your repository, and what it counts." },
+  about:   { title: "About", h1: "About IssueCount",
+             sub: "A full-stack project for counting and charting GitHub issues." },
+};
+
+/* ---------- storage helpers (may be blocked, so always guarded) ---------- */
+function store(key, value) {
+  try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); }
+  catch (e) { return null; }
+}
+function loadRecent() {
+  try { const r = JSON.parse(store("recentRepos") || "[]"); return Array.isArray(r) ? r : []; }
+  catch (e) { return []; }
+}
+function saveRecent(repo) {
+  const list = [repo, ...loadRecent().filter(r => r !== repo)].slice(0, 5);
+  store("recentRepos", JSON.stringify(list));
+  renderChips();
+}
+
+/* ---------- chips ---------- */
+function fillChips(rowId, items) { // items: [{text, onClick}]
+  const row = $(rowId);
+  row.querySelectorAll(".chip").forEach(c => c.remove());
+  items.forEach(({ text, onClick }) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = text;
+    b.addEventListener("click", onClick);
+    row.appendChild(b);
+  });
+}
+function renderChips() {
+  const open = name => () => { $("repo").value = name; run(); };
+  fillChips("examples-row", EXAMPLES.map(n => ({ text: n, onClick: open(n) })));
+  const recent = loadRecent();
+  $("recent-row").hidden = recent.length === 0;
+  fillChips("recent-row", recent.map(n => ({ text: n, onClick: open(n) })));
+  fillChips("c-examples-row", [{
+    text: "pallets/click vs psf/requests",
+    onClick: () => { $("c-repo1").value = "pallets/click"; $("c-repo2").value = "psf/requests"; runCompare(); },
+  }]);
+}
+
+/* ---------- theme ---------- */
+function setTheme(theme, remember = true) {
+  document.documentElement.dataset.theme = theme;
+  $("theme").textContent = theme === "dark" ? "☀️" : "🌙";
+  if (remember) store("theme", theme);
+  if (views[current]) show(current);
+}
+function initTheme() {
+  const saved = store("theme");
+  const dark = saved ? saved === "dark"
+    : window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+  setTheme(dark ? "dark" : "light", false);
+}
+
+/* ---------- navigation ---------- */
+function route() {
+  const hash = location.hash.slice(1);
+  const name = Object.prototype.hasOwnProperty.call(PAGES, hash) ? hash : "home";
+  current = name;
+  document.querySelectorAll("[data-page]").forEach(s => { s.hidden = s.dataset.page !== name; });
+  document.querySelectorAll("[data-nav]").forEach(a => {
+    const on = a.dataset.nav === name;
+    a.classList.toggle("active", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  $("hero-title").textContent = PAGES[name].h1;
+  $("hero-sub").textContent = PAGES[name].sub;
+  document.title = (name === "home" ? "" : PAGES[name].title + " - ") + "IssueCount";
+  $("nav").classList.remove("open");
+  $("menu").setAttribute("aria-expanded", "false");
+  if (views[name]) show(name); // redraw so charts get the right size on a visible page
+  window.scrollTo(0, 0);
+}
+
+/* ---------- talking to the server ---------- */
+async function api(path) {
+  let res;
+  try {
+    res = await fetch(path, { headers: { Accept: "application/json" } });
+  } catch (e) {
+    throw new Error("Could not reach the IssueCount server.");
+  }
+  if (!res.ok) {
+    let message = "Request failed (" + res.status + ").";
+    try {
+      const body = await res.json();
+      if (typeof body.detail === "string") message = body.detail;
+    } catch (e) { /* keep the generic message */ }
+    throw new Error(message);
+  }
+  return res.json();
+}
+const repoPath = repo => repo.split("/").map(encodeURIComponent).join("/");
+const labelQuery = label => label ? "label=" + encodeURIComponent(label) : "";
+
+/* ---------- charts ---------- */
+function drawChart(id, emptyId, config, hasData) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  $(id).hidden = !hasData;
+  if (emptyId) $(emptyId).hidden = hasData;
+  if (hasData && typeof Chart !== "undefined") charts[id] = new Chart($(id), config);
+}
+function chartTheme() {
+  if (typeof Chart === "undefined") return;
+  const dark = document.documentElement.dataset.theme === "dark";
+  Chart.defaults.color = dark ? "#c5cedd" : "#3b4656";
+  Chart.defaults.borderColor = dark ? "#2a3347" : "#e6eaf2";
+}
+const barConfig = (pairs, color) => ({
+  type: "bar",
+  data: { labels: pairs.map(p => p[0]),
+          datasets: [{ label: "Issues", data: pairs.map(p => p[1]), backgroundColor: color }] },
+  options: { plugins: { legend: { display: false } } },
+});
+
+/* ---------- rendering ---------- */
+function show(name) {
+  chartTheme();
+  if (name === "home") {
+    $("single").hidden = false;
+    renderSingle(views.home.data, views.home.points);
+  } else {
+    $("compare-view").hidden = false;
+    renderCompare(views.compare.a, views.compare.b);
+  }
+}
+
+function renderSingle(data, points) {
+  const s = data.summary, h = data.health;
+  const title = $("single-title");
+  title.textContent = data.repo;
+  title.href = "https://github.com/" + data.repo;
+  $("total").textContent = s.total;
+  $("open").textContent = s.open;
+  $("closed").textContent = s.closed;
+  $("avg").textContent = s.avg_days_to_close === null ? "-" : s.avg_days_to_close;
+  $("health").textContent = h.score === null ? "-" : h.score;
+  $("health").className = healthClass(h.score);
+  $("health-label").textContent = healthWord(h.score);
+  $("stale-line").textContent =
+    `${h.stale_open} open issue${h.stale_open === 1 ? "" : "s"} with no activity for ${h.stale_days}+ days`;
+  $("unassigned-line").textContent =
+    `${h.unassigned_open} open issue${h.unassigned_open === 1 ? "" : "s"} with no assignee`;
+
+  drawChart("months", "months-empty", {
+    type: "line",
+    data: { labels: s.months, datasets: [
+      { label: "Opened", data: s.opened, borderColor: "#ef4444", backgroundColor: "#ef4444" },
+      { label: "Closed", data: s.closed_per_month, borderColor: "#22c55e", backgroundColor: "#22c55e" },
+    ] },
+  }, s.months.length > 0);
+
+  drawChart("trend", "trend-empty", {
+    type: "line",
+    data: { labels: points.map(p => p.day), datasets: [
+      { label: "Open", data: points.map(p => p.open), borderColor: "#ef4444", backgroundColor: "#ef4444" },
+      { label: "Closed", data: points.map(p => p.closed), borderColor: "#22c55e", backgroundColor: "#22c55e" },
+    ] },
+  }, points.length >= 2);
+
+  drawChart("labels", "labels-empty", barConfig(s.labels, "#6366f1"), s.labels.length > 0);
+  drawChart("assignees", "assignees-empty", barConfig(s.assignees, "#f59e0b"), s.assignees.length > 0);
+}
+
+function renderCompare(a, b) {
+  $("cmp-a").textContent = a.repo;
+  $("cmp-b").textContent = b.repo;
+  const A = metricRows(a), B = metricRows(b);
+  const body = $("cmp-body");
+  body.replaceChildren();
+  const fmt = x => x === "" ? "-" : String(x);
+  A.forEach((row, i) => {
+    const tr = document.createElement("tr");
+    [row[0], fmt(row[1]), fmt(B[i][1])].forEach((text, j) => {
+      const cell = document.createElement(j === 0 ? "th" : "td");
+      cell.textContent = text;
+      tr.appendChild(cell);
+    });
+    body.appendChild(tr);
+  });
+
+  const sa = a.summary, sb = b.summary;
+  drawChart("cmp-bars", null, {
+    type: "bar",
+    data: { labels: ["Total", "Open", "Closed"], datasets: [
+      { label: a.repo, data: [sa.total, sa.open, sa.closed], backgroundColor: "#6366f1" },
+      { label: b.repo, data: [sb.total, sb.open, sb.closed], backgroundColor: "#f59e0b" },
+    ] },
+  }, true);
+
+  const m = mergeMonths(a, b);
+  drawChart("cmp-months", "cmp-months-empty", {
+    type: "line",
+    data: { labels: m.months, datasets: [
+      { label: a.repo, data: m.a, borderColor: "#6366f1", backgroundColor: "#6366f1" },
+      { label: b.repo, data: m.b, borderColor: "#f59e0b", backgroundColor: "#f59e0b" },
+    ] },
+  }, m.months.length > 0);
+}
+
+/* ---------- actions ---------- */
+function setStatus(id, text, kind) {
+  const el = $(id);
+  el.textContent = text;
+  el.className = "status" + (kind ? " " + kind : "");
+}
+
+// One sentence about where the numbers came from, and whether to trust them fully.
+function describe(datas, prefix) {
+  const partial = datas.some(d => d.partial);
+  const stale = datas.find(d => d.stale);
+  if (stale) return { text: `GitHub is not answering right now, so this is saved data from ${ageText(stale.fetched_at)}.`, kind: "warn" };
+  if (partial) return { text: "GitHub stopped paging on a large repo, so some counts are partial.", kind: "warn" };
+  const when = datas.every(d => d.cached)
+    ? "from cache, updated " + ageText(datas[0].fetched_at)
+    : "fresh from GitHub";
+  return { text: `${prefix} · ${when}`, kind: "" };
+}
+
+function downloadCsv(name) {
+  const v = views[name];
+  if (!v) return;
+  const text = name === "home" ? singleCsv(v.data) : compareCsv(v.a, v.b);
+  const base = name === "home" ? v.data.repo : v.a.repo + "-vs-" + v.b.repo;
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url; link.download = base.replace(/[^\w.-]+/g, "-") + "-issues.csv";
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function savePdf() {
+  // Print in light mode so the charts are readable on paper.
+  const wasDark = document.documentElement.dataset.theme === "dark";
+  if (wasDark) setTheme("light", false);
+  setTimeout(() => {
+    window.print();
+    if (wasDark) setTheme("dark", false);
+  }, 700);
+}
+
+function chartsNote(statusId) {
+  if (typeof Chart === "undefined") {
+    setStatus(statusId, "Counts are shown, but charts need an internet connection.", "warn");
+  }
+}
+
+async function run() {
+  const repo = parseRepo($("repo").value);
+  if (!repo) { setStatus("status", "Enter a repository like owner/repo.", "error"); return; }
+  const q = labelQuery($("label").value.trim());
+  $("go").disabled = true;
+  $("single").hidden = true;
+  setStatus("status", "Loading...");
+  try {
+    const base = `/api/repos/${repoPath(repo)}`;
+    const data = await api(`${base}/summary${q ? "?" + q : ""}`);
+    const hist = await api(`${base}/history${q ? "?" + q : ""}`);
+    views.home = { data, points: hist.points };
+    show("home");
+    saveRecent(data.repo);
+    const d = describe([data], `${data.repo}: ${data.summary.total} issues`);
+    setStatus("status", d.text, d.kind);
+    chartsNote("status");
+  } catch (error) {
+    setStatus("status", error.message || "Something went wrong.", "error");
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+async function runCompare() {
+  const ra = parseRepo($("c-repo1").value);
+  const rb = parseRepo($("c-repo2").value);
+  if (!ra || !rb) { setStatus("c-status", "Enter both repositories like owner/repo.", "error"); return; }
+  const label = $("c-label").value.trim();
+  $("c-go").disabled = true;
+  $("compare-view").hidden = true;
+  setStatus("c-status", "Loading...");
+  try {
+    let url = `/api/compare?a=${encodeURIComponent(ra)}&b=${encodeURIComponent(rb)}`;
+    if (label) url += "&label=" + encodeURIComponent(label);
+    const { a, b } = await api(url);
+    views.compare = { a, b };
+    show("compare");
+    const d = describe([a, b], `${a.repo} vs ${b.repo}`);
+    setStatus("c-status", d.text, d.kind);
+    chartsNote("c-status");
+  } catch (error) {
+    setStatus("c-status", error.message || "Something went wrong.", "error");
+  } finally {
+    $("c-go").disabled = false;
+  }
+}
+
+/* ---------- wiring ---------- */
+$("form").addEventListener("submit", e => { e.preventDefault(); run(); });
+$("cform").addEventListener("submit", e => { e.preventDefault(); runCompare(); });
+$("theme").addEventListener("click", () =>
+  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+$("menu").addEventListener("click", () => {
+  const open = $("nav").classList.toggle("open");
+  $("menu").setAttribute("aria-expanded", String(open));
+});
+document.querySelectorAll("[data-csv]").forEach(b =>
+  b.addEventListener("click", () => downloadCsv(b.closest("[data-page]").dataset.page)));
+document.querySelectorAll("[data-pdf]").forEach(b => b.addEventListener("click", savePdf));
+window.addEventListener("hashchange", route);
+initTheme();
+renderChips();
+route();
+</script>
+</body>
+</html>
